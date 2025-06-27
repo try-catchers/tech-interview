@@ -14,10 +14,13 @@ body:
       placeholder: 예) 운영체제, 네트워크 등
     validations:
       required: true
-  - type: markdown
+  - type: textarea
+    id: guide
     attributes:
+      label: 📢 안내
       value: |
-        ## 📢 안내
         - 주차별 스터디 주제를 등록하기 위한 이슈입니다.  
-        - 모든 팀원은 이 이슈에 자동으로 할당됩니다.
+        - 모든 팀원은 이 이슈에 자동으로 할당됩니다.  
         - 각 팀원은 하위 이슈로 질문을 등록해주세요.
+    validations:
+      required: false
