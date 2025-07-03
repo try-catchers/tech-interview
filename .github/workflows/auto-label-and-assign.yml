@@ -3,24 +3,25 @@ name: PR Label & Assignee Auto
 on:
   pull_request:
     types: [opened, reopened, synchronize]
-    
+
 permissions:
   contents: read
   pull-requests: write
   issues: write
-  
+
 jobs:
   label_and_assign:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 라벨명과 PR 작성자 가져오기
+      - name: PR 정보 추출
         id: vars
         run: |
           echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
           echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
           echo "pr_author=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
 
-      - name: n주차 라벨 파싱, 라벨 생성/부착, assignee 할당
+      - name: 라벨 생성 및 작성자 Assignee 등록
         uses: actions/github-script@v7
         with:
           script: |
@@ -28,63 +29,69 @@ jobs:
             const prNumber = parseInt('${{ steps.vars.outputs.pr_number }}', 10);
             const prAuthor = '${{ steps.vars.outputs.pr_author }}';
 
-            // [n주차] 형태에서 n주차 추출
-            const match = prTitle.match(/\[(\d+)주차\]/);
-            if (!match) {
-              core.info('PR 제목에 [n주차] 패턴이 없어 라벨 작업을 건너뜀');
-              return;
-            }
-            const labelName = `${match[1]}주차`;
+            await (async ({ github, context, core }) => {
+              const match = prTitle.match(/\[(\d+)주차\]/);
+              if (!match) {
+                core.info('PR 제목에 [n주차] 패턴이 없어 라벨 작업을 건너뜀');
+                return;
+              }
 
-            // 현재 리포지토의 라벨 목록 조회
-            const labels = await github.issues.listLabelsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
+              const labelName = `${match[1]}주차`;
 
-            const labelExists = labels.data.find(l => l.name === labelName);
-
-            // 라벨이 없으면 생성 (랜덤 색상 지정)
-            if (!labelExists) {
-              const randomColor = Math.floor(Math.random()*0xffffff).toString(16).padStart(6, '0');
-              await github.issues.createLabel({
+              // 라벨 존재 여부 확인
+              const labels = await github.rest.issues.listLabelsForRepo({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                name: labelName,
-                color: randomColor,
               });
-              core.info(`라벨 '${labelName}' 생성 (색상: #${randomColor})`);
-            } else {
-              core.info(`라벨 '${labelName}' 이미 존재`);
-            }
 
-            // PR에 라벨 붙이기 (중복은 자동 무시)
-            await github.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              labels: [labelName],
-            });
-            core.info(`라벨 '${labelName}' PR #${prNumber}에 부착 완료`);
+              const labelExists = labels.data.find(l => l.name === labelName);
 
-            // PR 작성자가 이미 assignee인지 확인
-            const pr = await github.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
+              // 라벨 없으면 생성
+              if (!labelExists) {
+                const randomColor = Math.floor(Math.random() * 0xffffff)
+                  .toString(16)
+                  .padStart(6, '0');
 
-            const assignees = pr.data.assignees.map(a => a.login);
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: labelName,
+                  color: randomColor,
+                });
 
-            if (assignees.includes(prAuthor)) {
-              core.info(`작성자 ${prAuthor}는 이미 assignee로 등록되어 있음`);
-            } else {
-              // assignee 추가
-              await github.issues.addAssignees({
+                core.info(`'${labelName}' 라벨 생성 완료`);
+              } else {
+                core.info(`'${labelName}' 라벨은 이미 존재`);
+              }
+
+              // PR에 라벨 부착
+              await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                assignees: [prAuthor],
+                labels: [labelName],
               });
-              core.info(`작성자 ${prAuthor}를 assignee로 추가함`);
-            }
+
+              core.info(`PR #${prNumber}에 '${labelName}' 라벨 부착 완료`);
+
+              // PR 작성자 Assignee로 등록
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              const currentAssignees = pr.data.assignees.map(a => a.login);
+
+              if (currentAssignees.includes(prAuthor)) {
+                core.info(`작성자 ${prAuthor}는 이미 assignee로 등록됨`);
+              } else {
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  assignees: [prAuthor],
+                });
+                core.info(`작성자 ${prAuthor}를 assignee로 추가함`);
+              }
+            })({ github, context, core });
