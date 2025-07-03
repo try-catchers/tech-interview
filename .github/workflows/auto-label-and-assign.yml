@@ -1,0 +1,85 @@
+name: Auto Label and Assign PR by [n주차]
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+jobs:
+  label-and-assign:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract PR title
+        id: extract
+        run: |
+          echo "title=${{ github.event.pull_request.title }}" >> "$GITHUB_OUTPUT"
+
+      - name: Parse [n주차] from title
+        id: parse
+        run: |
+          TITLE="${{ steps.extract.outputs.title }}"
+          if [[ "$TITLE" =~ \[([0-9]+)주차\] ]]; then
+            echo "week_label=${BASH_REMATCH[1]}주차" >> "$GITHUB_OUTPUT"
+          else
+            echo "No [n주차] label found in title. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create label (if needed), assign label, assign user
+        if: steps.parse.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labelName = `${{ steps.parse.outputs.week_label }}`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = context.issue.number;
+            const prAuthor = context.payload.pull_request.user.login;
+
+            // 랜덤 HEX 색상 생성
+            function randomColor() {
+              return Math.floor(Math.random() * 0xffffff)
+                .toString(16)
+                .padStart(6, '0');
+            }
+
+            // 1. 라벨 존재 확인 & 생성
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: labelName });
+            } catch (e) {
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: labelName,
+                color: randomColor(),
+                description: `${labelName} 자동 생성 라벨`
+              });
+            }
+
+            // 2. 라벨 PR에 부착
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: prNumber,
+              labels: [labelName]
+            });
+
+            // 3. Assignee가 이미 있으면 생략
+            const pr = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: prNumber
+            });
+
+            const alreadyAssigned = pr.data.assignees.some(a => a.login === prAuthor);
+
+            if (!alreadyAssigned) {
+              await github.rest.issues.addAssignees({
+                owner,
+                repo,
+                issue_number: prNumber,
+                assignees: [prAuthor]
+              });
+            } else {
+              console.log(`${prAuthor} is already assigned. Skipping.`);
+            }
