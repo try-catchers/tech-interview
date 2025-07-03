@@ -3,7 +3,12 @@ name: PR Label & Assignee Auto
 on:
   pull_request:
     types: [opened, reopened, synchronize]
-
+    
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  
 jobs:
   label_and_assign:
     runs-on: ubuntu-latest
